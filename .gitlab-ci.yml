@@ -1,0 +1,35 @@
+stages:
+  - build
+  - deploy
+
+build_job:
+  stage: build
+  image: docker:20.10.16
+  services:
+      - name: docker:dind
+        alias: docker
+        command: [ "--tls=false", "--host", "tcp://0.0.0.0:2375" ]
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+  script:
+    - docker login --username $DOCKER_USERNAME --password $DOCKER_PASSWORD
+    - docker build -t $DOCKER_USERNAME/learned .
+    - docker push $DOCKER_USERNAME/learned
+
+deploy_job:
+  stage: deploy
+  image: alpine
+  before_script:
+    - apk add --no-cache openssh-client
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - echo "$PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+    - chmod 600 ~/.ssh/id_rsa
+    - ssh-keyscan -H $IP >> ~/.ssh/known_hosts
+  script:
+    - ssh $USER@$IP "docker pull $DOCKER_USERNAME/learned && 
+      docker rm -f learned || true && 
+      docker run -dp 5000:8000 --name learned $DOCKER_USERNAME/learned"
+
